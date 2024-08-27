@@ -41,11 +41,32 @@ disable_ssh_password() {
     echo "SSH login with password has been Disabled."  
     read -p "Press Enter To Continue"
 }
+enable_root_login() {
+
+    CONFIG_FILE="/etc/cloud/cloud.cfg"
+    SEARCH_STRING="disable_root: true"
+    REPLACE_STRING="disable_root: false"
+
+    # Check if the file exists
+    if [[ -f "$CONFIG_FILE" ]]; then
+        # Replace the 'disable_root: true' with 'disable_root: false'
+        sudo sed -i "s/$SEARCH_STRING/$REPLACE_STRING/" "$CONFIG_FILE"
+
+        echo "Updated $CONFIG_FILE to enable root user."
+        sudo cloud-init clean -r
+        echo "cloud-init has been cleaned and re-run."
+    else
+        echo "Configuration file $CONFIG_FILE not found!"
+        exit 1
+    fi
+    read -p "Press Enter To Continue"
+}
 # Function to show the menu
 show_menu() {
     echo "Please choose an option:"
     echo "1) Enable SSH Password Login"
     echo "2) Disable SSh Password Login"
+    echo "3) Enable Root Login"
     echo "9) Exit"
 }
 # Loop until the user chooses to exit
@@ -58,6 +79,9 @@ while true; do
             ;;
         2)
             disable_ssh_password
+            ;;
+        3)
+            enable_root_login
             ;;
         9)
             echo "Exiting..."
