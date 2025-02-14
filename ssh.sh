@@ -33,6 +33,30 @@ enable_ssh_password() {
     read -p "Press Enter To Continue"
 }
 disable_ssh_password() {
+    ROOT_SSH_DIR="/root/.ssh"
+    ROOT_AUTH_KEYS="$ROOT_SSH_DIR/authorized_keys"
+
+    # Ensure the /root/.ssh directory exists with proper permissions
+    if [ ! -d "$ROOT_SSH_DIR" ]; then
+        echo "/root/.ssh directory not found. Creating it..."
+        sudo mkdir -p "$ROOT_SSH_DIR"
+        sudo chmod 700 "$ROOT_SSH_DIR"
+    fi
+
+    # Check if the authorized_keys file exists and contains at least one SSH key.
+    # This regex checks for keys that typically start with ssh-rsa, ssh-ed25519, etc.
+    if [ ! -f "$ROOT_AUTH_KEYS" ] || ! sudo grep -qE "^(ssh-(rsa|dss)|ecdsa-|ssh-ed25519)" "$ROOT_AUTH_KEYS"; then
+        echo "No SSH key found in /root/.ssh/authorized_keys."
+        echo "Please paste your public SSH key (e.g., starting with ssh-rsa or ssh-ed25519):"
+        read -r SSH_KEY
+        if [ -z "$SSH_KEY" ]; then
+            echo "No SSH key entered. Aborting disabling password login."
+            return 1
+        fi
+        echo "$SSH_KEY" | sudo tee -a "$ROOT_AUTH_KEYS" > /dev/null
+        sudo chmod 600 "$ROOT_AUTH_KEYS"
+        echo "SSH key added for root."
+    fi    
     sudo sed -i 's/^#\?PermitRootLogin.*/PermitRootLogin prohibit-password/' $ssh_config
 
     # Restart the SSH service to apply changes
@@ -40,6 +64,41 @@ disable_ssh_password() {
 
     echo "SSH login with password has been Disabled."  
     read -p "Press Enter To Continue"
+}
+remove_ssh_key() {
+    ROOT_SSH_DIR="/root/.ssh"
+    ROOT_AUTH_KEYS="$ROOT_SSH_DIR/authorized_keys"
+
+    # Check if the authorized_keys file exists
+    if [ ! -f "$ROOT_AUTH_KEYS" ]; then
+        echo "No authorized_keys file found in /root/.ssh. Nothing to remove."
+        read -p "Press Enter to continue..."
+        return
+    fi
+
+    echo "The following SSH keys exist in /root/.ssh/authorized_keys:"
+    sudo cat "$ROOT_AUTH_KEYS"
+    echo
+
+    while true; do
+        read -p "Do you want to remove all SSH keys? (y/n): " answer
+        case "$answer" in
+            [Yy]* )
+                # Remove the authorized_keys file
+                sudo rm -f "$ROOT_AUTH_KEYS"
+                echo "SSH keys removed from /root/.ssh/authorized_keys."
+                break
+                ;;
+            [Nn]* )
+                echo "Aborting removal of SSH keys."
+                break
+                ;;
+            * )
+                echo "Please answer y or n."
+                ;;
+        esac
+    done
+    read -p "Press Enter to continue..."
 }
 enable_root_login() {
 
@@ -61,12 +120,38 @@ enable_root_login() {
     fi
     read -p "Press Enter To Continue"
 }
+set_new_ssh_key() {
+    ROOT_SSH_DIR="/root/.ssh"
+    ROOT_AUTH_KEYS="$ROOT_SSH_DIR/authorized_keys"
+
+    # Ensure the /root/.ssh directory exists with proper permissions
+    if [ ! -d "$ROOT_SSH_DIR" ]; then
+        echo "/root/.ssh directory not found. Creating it..."
+        sudo mkdir -p "$ROOT_SSH_DIR"
+        sudo chmod 700 "$ROOT_SSH_DIR"
+    fi
+
+    echo "Please paste your new public SSH key (e.g., starting with ssh-rsa or ssh-ed25519):"
+    read -r new_key
+    if [ -z "$new_key" ]; then
+        echo "No SSH key entered. Aborting."
+        read -p "Press Enter to continue..."
+        return 1
+    fi
+
+    echo "$new_key" | sudo tee -a "$ROOT_AUTH_KEYS" > /dev/null
+    sudo chmod 600 "$ROOT_AUTH_KEYS"
+    echo "New SSH key added to /root/.ssh/authorized_keys."
+    read -p "Press Enter to continue..."
+}
 # Function to show the menu
 show_menu() {
     echo "Please choose an option:"
     echo "1) Enable SSH Password Login"
-    echo "2) Disable SSh Password Login"
+    echo "2) Disable Password Login "
     echo "3) Enable Root Login"
+    echo "4) Set a New SSH Key"
+    echo "5) Remove Existing SSH Key"
     echo "9) Exit"
 }
 # Loop until the user chooses to exit
@@ -82,6 +167,12 @@ while true; do
             ;;
         3)
             enable_root_login
+            ;;
+        4)
+            set_new_ssh_key
+            ;;
+        5)
+            remove_ssh_key
             ;;
         9)
             echo "Exiting..."
