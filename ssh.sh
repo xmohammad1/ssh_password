@@ -144,14 +144,99 @@ set_new_ssh_key() {
     echo "New SSH key added to /root/.ssh/authorized_keys."
     read -p "Press Enter to continue..."
 }
+enable_ipv6_gcore() {
+# Backup existing netplan config
+sudo cp /etc/netplan/50-cloud-init.yaml /etc/netplan/50-cloud-init.yaml.bak
+
+# Auto-detect primary interface
+INTERFACE=$(ip route | awk '/default/ {print $5}' | head -n1)
+[ -z "$INTERFACE" ] && INTERFACE=enp3s0
+
+# Detect all MAC addresses for the interface
+declare -a MAC_ADDRESSES=($(ip link show $INTERFACE 2>/dev/null | awk '/link\/ether/ {print $2}'))
+
+# Auto-select first MAC if multiple found
+if [ ${#MAC_ADDRESSES[@]} -gt 1 ]; then
+    echo "Multiple MAC addresses detected. Using first MAC: ${MAC_ADDRESSES[0]}"
+    MAC_ADDRESS=${MAC_ADDRESSES[0]}
+elif [ ${#MAC_ADDRESSES[@]} -eq 1 ]; then
+    MAC_ADDRESS=${MAC_ADDRESSES[0]}
+else
+    echo "No MAC address detected for $INTERFACE"
+    read -p "Enter MAC address manually (format: aa:bb:cc:dd:ee:ff): " MAC_ADDRESS
+fi
+
+# Validate MAC format
+if ! [[ "$MAC_ADDRESS" =~ ^([0-9A-Fa-f]{2}:){5}[0-9A-Fa-f]{2}$ ]]; then
+    echo "Error: Invalid MAC address format"
+    exit 1
+fi
+
+# Get IPv6 address from user
+read -p "Enter IPv6 address with CIDR (e.g., 2a03:90c0:92:1::366/64): " IPV6_ADDRESS
+if ! [[ "$IPV6_ADDRESS" =~ ^[0-9a-fA-F:]+/[0-9]{1,3}$ ]]; then
+    echo "Error: Invalid IPv6 format"
+    exit 1
+fi
+
+# Auto-detect IPv6 gateway
+IPV6_GATEWAY=$(ip -6 route show default | awk '/default/{print $3}' | head -n1)
+if [ -z "$IPV6_GATEWAY" ]; then
+    echo "Warning: No IPv6 gateway detected automatically!"
+    read -p "Enter IPv6 gateway manually: " IPV6_GATEWAY
+fi
+
+# Generate netplan config
+cat << EOF | sudo tee /etc/netplan/50-cloud-init.yaml
+network:
+    version: 2
+    ethernets:
+        $INTERFACE:
+            accept-ra: true
+            dhcp4: true
+            dhcp6: false
+            match:
+                macaddress: $MAC_ADDRESS
+            mtu: 1500
+            set-name: $INTERFACE
+            addresses:
+                - $IPV6_ADDRESS
+            routes:
+                - to: ::/0
+                  via: $IPV6_GATEWAY
+EOF
+
+# Apply configuration
+sudo netplan generate
+sudo netplan apply
+
+# Verification with failure detection
+echo -e "\nVerification:"
+ip -6 addr show $INTERFACE
+ip -6 route show default
+
+echo -e "\nTesting IPv6 connectivity..."
+ping6 -c 4 2001:4860:4860::8888
+
+if [ $? -ne 0 ]; then
+    echo -e "\n\033[31mIPv6 connectivity failed! Possible causes:"
+    echo "1. Incorrect MAC address selection"
+    echo "2. Wrong IPv6 gateway"
+    echo "3. Provider-side configuration issues"
+    echo -e "\033[0mCheck these and re-run the script if needed."
+else
+    echo -e "\n\033[32mIPv6 configuration successful!\033[0m"
+fi
+}
 # Function to show the menu
 show_menu() {
     echo "Please choose an option:"
     echo "1) Enable SSH Password Login"
     echo "2) Disable Password Login "
-    echo "3) Enable Root Login"
-    echo "4) Set a New SSH Key"
-    echo "5) Remove Existing SSH Key"
+    echo "3) Set a New SSH Key"
+    echo "4) Remove Existing SSH Key"
+    echo "5) Enable Root Login"
+    echo "6) Enable IPv6 on Gcore"
     echo "9) Exit"
 }
 # Loop until the user chooses to exit
@@ -166,13 +251,16 @@ while true; do
             disable_ssh_password
             ;;
         3)
-            enable_root_login
-            ;;
-        4)
             set_new_ssh_key
             ;;
-        5)
+        4)
             remove_ssh_key
+            ;;
+        5)
+            enable_root_login
+            ;;
+        6)
+            enable_ipv6_gcore
             ;;
         9)
             echo "Exiting..."
