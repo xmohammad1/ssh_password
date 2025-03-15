@@ -235,8 +235,8 @@ show_menu() {
     echo "2) Disable Password Login "
     echo "3) Set a New SSH Key"
     echo "4) Remove Existing SSH Key"
-    echo "5) Enable Root Login"
-    echo "6) Enable IPv6 on Gcore"
+    echo "5) Enable Root Login (Gcore)"
+    echo "6) Enable IPv6 on (Gcore)"
     echo "9) Exit"
 }
 # Loop until the user chooses to exit
