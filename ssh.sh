@@ -60,7 +60,7 @@ disable_ssh_password() {
     sudo sed -i 's/^#\?PermitRootLogin.*/PermitRootLogin prohibit-password/' $ssh_config
 
     # Restart the SSH service to apply changes
-    sudo systemctl restart sshd
+    sudo systemctl restart ssh
 
     echo "SSH login with password has been Disabled."  
     read -p "Press Enter To Continue"
