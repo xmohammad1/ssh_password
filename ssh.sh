@@ -28,7 +28,7 @@ enable_ssh_password() {
     # Enable root login with password in SSH configuration
     sudo sed -i 's/^#\?PermitRootLogin.*/PermitRootLogin yes/' $ssh_config
     # Restart the SSH service to apply changes
-    sudo systemctl restart sshd
+    sudo systemctl restart ssh
     echo "Root password has been set and SSH login with password has been Enabled."
     read -p "Press Enter To Continue"
 }
