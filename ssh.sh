@@ -1,38 +1,8 @@
 #!/bin/bash
 ssh_config="/etc/ssh/sshd_config"
-enable_ssh_password() {
-    # Prompt the user for a password
-    read -sp "Enter a root password: " root_password
 
-
-    # Set the root password
-    echo "password you Enter is: $root_password"
-
-    while true; do
-        read -p "Do you want to set it?(y/n): " y_n
-        case $y_n in
-            [Yy]* ) 
-                # Set the root password
-                echo "root:$root_password" | sudo chpasswd
-                break
-                ;;
-            [Nn]* ) 
-                return 0
-                ;;
-            * ) 
-                echo "Please answer yes or no."
-                ;;
-        esac
-    done
-
-    # Enable root login with password in SSH configuration
-    sudo sed -i 's/^#\?PermitRootLogin.*/PermitRootLogin yes/' $ssh_config
-    # Restart the SSH service to apply changes
-    sudo systemctl restart ssh
-    echo "Root password has been set and SSH login with password has been Enabled."
-    read -p "Press Enter To Continue"
-}
-disable_ssh_password() {
+# Improved function to set new SSH keys
+set_new_ssh_key() {
     ROOT_SSH_DIR="/root/.ssh"
     ROOT_AUTH_KEYS="$ROOT_SSH_DIR/authorized_keys"
 
@@ -43,28 +13,51 @@ disable_ssh_password() {
         sudo chmod 700 "$ROOT_SSH_DIR"
     fi
 
-    # Check if the authorized_keys file exists and contains at least one SSH key.
-    # This regex checks for keys that typically start with ssh-rsa, ssh-ed25519, etc.
-    if [ ! -f "$ROOT_AUTH_KEYS" ] || ! sudo grep -qE "^(ssh-(rsa|dss)|ecdsa-|ssh-ed25519)" "$ROOT_AUTH_KEYS"; then
-        echo "No SSH key found in /root/.ssh/authorized_keys."
-        echo "Please paste your public SSH key (e.g., starting with ssh-rsa or ssh-ed25519):"
-        read -r SSH_KEY
-        if [ -z "$SSH_KEY" ]; then
-            echo "No SSH key entered. Aborting disabling password login."
-            return 1
-        fi
-        echo "$SSH_KEY" | sudo tee -a "$ROOT_AUTH_KEYS" > /dev/null
-        sudo chmod 600 "$ROOT_AUTH_KEYS"
-        echo "SSH key added for root."
-    fi    
-    sudo sed -i 's/^#\?PermitRootLogin.*/PermitRootLogin prohibit-password/' $ssh_config
+    # Show existing keys if any
+    if [ -f "$ROOT_AUTH_KEYS" ]; then
+        echo "Current SSH keys in authorized_keys:"
+        sudo cat "$ROOT_AUTH_KEYS"
+        echo "----------------------------------------"
+    fi
 
-    # Restart the SSH service to apply changes
-    sudo systemctl restart ssh
+    echo "Please paste your new public SSH key (e.g., starting with ssh-rsa or ssh-ed25519):"
+    read -r new_key
+    if [ -z "$new_key" ]; then
+        echo "No SSH key entered. Aborting."
+        read -p "Press Enter to continue..."
+        return 1
+    fi
 
-    echo "SSH login with password has been Disabled."  
-    read -p "Press Enter To Continue"
+    # Validate the key format
+    if ! echo "$new_key" | grep -qE "^(ssh-(rsa|dss|ed25519)|ecdsa-)" ; then
+        echo "Error: Invalid SSH key format. Key should start with ssh-rsa, ssh-ed25519, etc."
+        read -p "Press Enter to continue..."
+        return 1
+    fi
+
+    # Check if the key already exists
+    if [ -f "$ROOT_AUTH_KEYS" ] && sudo grep -q "$new_key" "$ROOT_AUTH_KEYS"; then
+        echo "This SSH key already exists in authorized_keys."
+        read -p "Press Enter to continue..."
+        return 0
+    fi
+
+    # Add the new key with proper line breaks
+    echo "$new_key" | sudo tee -a "$ROOT_AUTH_KEYS" > /dev/null
+    
+    # Ensure the file has proper permissions
+    sudo chmod 600 "$ROOT_AUTH_KEYS"
+    
+    echo "New SSH key added to /root/.ssh/authorized_keys."
+    echo "----------------------------------------"
+    echo "All current SSH keys:"
+    sudo cat "$ROOT_AUTH_KEYS"
+    echo "----------------------------------------"
+    echo "Important: Make sure to test the new key before logging out."
+    read -p "Press Enter to continue..."
 }
+
+# Improved function to remove specific SSH keys
 remove_ssh_key() {
     ROOT_SSH_DIR="/root/.ssh"
     ROOT_AUTH_KEYS="$ROOT_SSH_DIR/authorized_keys"
@@ -76,28 +69,67 @@ remove_ssh_key() {
         return
     fi
 
+    # Count lines in the file
+    local key_count=$(sudo wc -l < "$ROOT_AUTH_KEYS")
+    
+    if [ "$key_count" -eq 0 ]; then
+        echo "The authorized_keys file is empty. No keys to remove."
+        read -p "Press Enter to continue..."
+        return
+    fi
+
     echo "The following SSH keys exist in /root/.ssh/authorized_keys:"
-    sudo cat "$ROOT_AUTH_KEYS"
+    sudo nl -w1 -s') ' "$ROOT_AUTH_KEYS"
     echo
 
-    while true; do
-        read -p "Do you want to remove all SSH keys? (y/n): " answer
-        case "$answer" in
-            [Yy]* )
-                # Remove the authorized_keys file
-                sudo rm -f "$ROOT_AUTH_KEYS"
-                echo "SSH keys removed from /root/.ssh/authorized_keys."
-                break
-                ;;
-            [Nn]* )
-                echo "Aborting removal of SSH keys."
-                break
-                ;;
-            * )
-                echo "Please answer y or n."
-                ;;
-        esac
-    done
+    echo "Options:"
+    echo "1) Remove a specific SSH key"
+    echo "2) Remove all SSH keys"
+    echo "3) Cancel"
+    
+    read -p "Select an option [1-3]: " remove_option
+    
+    case "$remove_option" in
+        1)
+            read -p "Enter the number of the key to remove: " key_number
+            if ! [[ "$key_number" =~ ^[0-9]+$ ]] || [ "$key_number" -lt 1 ] || [ "$key_number" -gt "$key_count" ]; then
+                echo "Invalid selection. Please enter a number between 1 and $key_count."
+            else
+                # Create a temporary file
+                local temp_file=$(mktemp)
+                sudo awk "NR != $key_number" "$ROOT_AUTH_KEYS" > "$temp_file"
+                sudo mv "$temp_file" "$ROOT_AUTH_KEYS"
+                sudo chmod 600 "$ROOT_AUTH_KEYS"
+                echo "SSH key #$key_number has been removed."
+            fi
+            ;;
+        2)
+            while true; do
+                read -p "Are you sure you want to remove ALL SSH keys? This may lock you out! (y/n): " answer
+                case "$answer" in
+                    [Yy]* )
+                        sudo rm -f "$ROOT_AUTH_KEYS"
+                        echo "All SSH keys have been removed from /root/.ssh/authorized_keys."
+                        break
+                        ;;
+                    [Nn]* )
+                        echo "Operation cancelled."
+                        break
+                        ;;
+                    * )
+                        echo "Please answer y or n."
+                        ;;
+                esac
+            done
+            ;;
+        3)
+            echo "Operation cancelled."
+            ;;
+        *)
+            echo "Invalid option selected."
+            ;;
+    esac
+    
     read -p "Press Enter to continue..."
 }
 enable_root_login() {
