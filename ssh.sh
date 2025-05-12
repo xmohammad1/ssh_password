@@ -176,6 +176,39 @@ set_new_ssh_key() {
     echo "New SSH key added to /root/.ssh/authorized_keys."
     read -p "Press Enter to continue..."
 }
+disable_ssh_password() {
+    ROOT_SSH_DIR="/root/.ssh"
+    ROOT_AUTH_KEYS="$ROOT_SSH_DIR/authorized_keys"
+
+    # Ensure the /root/.ssh directory exists with proper permissions
+    if [ ! -d "$ROOT_SSH_DIR" ]; then
+        echo "/root/.ssh directory not found. Creating it..."
+        sudo mkdir -p "$ROOT_SSH_DIR"
+        sudo chmod 700 "$ROOT_SSH_DIR"
+    fi
+
+    # Check if the authorized_keys file exists and contains at least one SSH key.
+    # This regex checks for keys that typically start with ssh-rsa, ssh-ed25519, etc.
+    if [ ! -f "$ROOT_AUTH_KEYS" ] || ! sudo grep -qE "^(ssh-(rsa|dss)|ecdsa-|ssh-ed25519)" "$ROOT_AUTH_KEYS"; then
+        echo "No SSH key found in /root/.ssh/authorized_keys."
+        echo "Please paste your public SSH key (e.g., starting with ssh-rsa or ssh-ed25519):"
+        read -r SSH_KEY
+        if [ -z "$SSH_KEY" ]; then
+            echo "No SSH key entered. Aborting disabling password login."
+            return 1
+        fi
+        echo "$SSH_KEY" | sudo tee -a "$ROOT_AUTH_KEYS" > /dev/null
+        sudo chmod 600 "$ROOT_AUTH_KEYS"
+        echo "SSH key added for root."
+    fi    
+    sudo sed -i 's/^#\?PermitRootLogin.*/PermitRootLogin prohibit-password/' $ssh_config
+
+    # Restart the SSH service to apply changes
+    sudo systemctl restart ssh
+
+    echo "SSH login with password has been Disabled."  
+    read -p "Press Enter To Continue"
+}
 enable_ipv6_gcore() {
 # Backup existing netplan config
 sudo cp /etc/netplan/50-cloud-init.yaml /etc/netplan/50-cloud-init.yaml.bak
