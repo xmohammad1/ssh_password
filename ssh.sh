@@ -1,6 +1,37 @@
 #!/bin/bash
 ssh_config="/etc/ssh/sshd_config"
+enable_ssh_password() {
+    # Prompt the user for a password
+    read -sp "Enter a root password: " root_password
 
+
+    # Set the root password
+    echo "password you Enter is: $root_password"
+
+    while true; do
+        read -p "Do you want to set it?(y/n): " y_n
+        case $y_n in
+            [Yy]* ) 
+                # Set the root password
+                echo "root:$root_password" | sudo chpasswd
+                break
+                ;;
+            [Nn]* ) 
+                return 0
+                ;;
+            * ) 
+                echo "Please answer yes or no."
+                ;;
+        esac
+    done
+
+    # Enable root login with password in SSH configuration
+    sudo sed -i 's/^#\?PermitRootLogin.*/PermitRootLogin yes/' $ssh_config
+    # Restart the SSH service to apply changes
+    sudo systemctl restart ssh
+    echo "Root password has been set and SSH login with password has been Enabled."
+    read -p "Press Enter To Continue"
+}
 # Improved function to set new SSH keys
 set_new_ssh_key() {
     ROOT_SSH_DIR="/root/.ssh"
